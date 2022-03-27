@@ -244,4 +244,3 @@ def to_csv(df, file_name, file_path):
     df.sort_index(inplace=True)
     # Then save it to a csv
     df.to_csv(file, index=False)
-"""
