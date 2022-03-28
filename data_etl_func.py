@@ -27,7 +27,7 @@ def data_to_delete(df):
     ## races that were cancelled, only for new horses, some horses with handicapped, and obstacle races are excluded 
     ## They are have a lot less number of race histories.
     df = df[~df['track_cd'].isin([51,52,53,54,55,56,57,58,59])]
-    df['delete_flg'] = (df['race_name'].str.contains('H|障害')).astype(int)
+    df['delete_flg'] = (df['race_name'].str.contains('１勝ｸﾗｽ|未勝利|新馬|H|障害')).astype(int)
     df = df[df['異常コード'].isnull() | (df['異常コード'] == 0) & (df['delete_flg'] == 0)]
     ## some duplicated variables and variables that have no associations with the race results are dropped
     drop_vars = ['タイムS','レースID','単勝オッズ','人気','異常コード', 'delete_flg',\
@@ -55,35 +55,37 @@ def track_type(df):
 
 df = track_type(df)
 
-###### WORK FROM HERE
+#### label encoding categorical string variables
 def label_encode(df):
-    df_target_original = df[df['target_flg'] == 1]
-    
     # get all object column name in list
     cat = list(df.select_dtypes(include='object').columns)
     # remove object but non categorical variable
-    non_cat = {'year','month','day','horse_name_original'}
+    non_cat = {'year_yyyy','month_mm','day_dd','horse_name'}
     cat = [ele for ele in cat if ele not in non_cat]
-    # replace null value to 0
+    # replace null value to abnormal value to be recognised as null
     for i in cat:
-        df[i] = df[i].fillna('NaN')
-    # label encoding all columns
+        df[i] = df[i].fillna('Nan')
+    # label encoding all the variables
     le = LabelEncoder()
     df[cat] = df[cat].apply(le.fit_transform)
 
-    df_target_original = pd.merge(df_target_original, \
-                                  df[['seq_num', 'place', 'horse_name']], how='left', on='seq_num')
-    df_target_original = df_target_original[['place_x','horse_name_y','place_y','horse_name_original']]
-    df = df.drop(columns=['seq_num','horse_name_original'])
     print("label encoded:",cat)
-    return df, cat, df_target_original
+    return df, cat
 
+df_l, cat = label_encode(df)
+
+#### Peak age of horse for racing is around 4 years old. 
+#### create age in months as this feature may have more impact on the prediction
 def age_month(df):
     df['DOB'] = df['DOB'].astype(str)
-    df['age_month'] = (df['year'].astype('float64') - df['DOB'].str[:4].astype('float64')) * 12 + (df['month'].astype('float64') - df['DOB'].str[4:6].astype('float64'))
+    df['age_month'] = (df['year_yyyy'].astype('float64') - df['DOB'].str[:4].astype('float64')) * 12 + (df['month'].astype('float64') - df['DOB'].str[4:6].astype('float64'))
     df.drop(columns=['DOB'])
     return(df)
 
+df = age_month(df_l)
+
+
+#### WORK FROM HERE
 # enter label encoding category list and add other cat variables
 def int_cat_list(cat):
     other_cat = ['place','class_cd','race_name','field', 'weather',
