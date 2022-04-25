@@ -21,7 +21,7 @@ def data_to_read(history_df,mapping_df):
     df_data['month_mm'] = df_data['month'].apply(lambda x : '0' + str(x) if int(x) < 10 else str(x))
     df_data['day_dd'] = df_data['day'].apply(lambda x : '0' + str(x) if int(x) < 10 else str(x))
     df_data['horse_name_original'] = df_data['horse_name']
-    ##same horse name can exist in data. Create unique horse name
+    ##same horse name can exist. Create unique horse name
     df_data['horse_name'] = df_data['horse_name'] + df_data['producer_name'] + df_data['horse_father'] + df_data['horse_mother']
     print("LOADING FINISHED IN {0} SECONDS".format((datetime.now()-st_time).total_seconds()))
     return df_data
@@ -75,7 +75,7 @@ def label_encode(df):
     # get all object column name in list
     cat = list(df.select_dtypes(include='object').columns)
     # remove object but non categorical variable
-    non_cat = {'year_yyyy','month_mm','day_dd','horse_name'}
+    non_cat = {'year_yyyy','month_mm','day_dd','horse_name_original'}
     cat = [ele for ele in cat if ele not in non_cat]
     # replace null value to abnormal value to be recognised as null
     for i in cat:
@@ -90,7 +90,7 @@ def label_encode(df):
 df_l, cat = label_encode(df)
 
 #### Peak age of horse for racing is around 4 years old. 
-#### create age in months as this feature may have more impact on the prediction
+#### create age in months as it may have a stronger contribution than age in year
 def age_month(df):
     print("ADDING AGE IN MONTH FEATURE ON",datetime.now())
     st_time = datetime.now()
@@ -100,10 +100,10 @@ def age_month(df):
     print("AGE ADDED IN {0} SECONDS".format((datetime.now()-st_time).total_seconds()))
     return(df)
 
-df = age_month(df_l)
+df_ag = age_month(df_l)
 
-
-# enter label encoding category list and add other cat variables
+"""
+#### enter label encoding category list and add other cat variables
 def int_cat_list(cat):
     other_cat = ['place','class_cd','race_name','field', 'weather',
         'field_cond', 'horse_name', 'sex','jockey','rank', 'track_cd',
@@ -115,57 +115,72 @@ def int_cat_list(cat):
     int_cat_list = [ele for ele in int_cat_list if ele not in drop_cat]
     return(int_cat_list)
 
-#### list of columns used to create previous race variables
+cat = int_cat_list(cat)
+"""
+
+#### return df with only columns that are used to create previous race variables
 #### this function is used in merge history data function
 def rename_histry_data(var_hist,df_name):
-    df = df_name[['horse_name','place','sum_num','horse_num','rank','field','track_type',\
+    df = df_name[['horse_name','place','total_horses','horse_num','rank','field','track_type',\
                  'dist','field_cond', 'weather','time','last_3F','date','class_cd','jockey',\
-                  'corner_cnt', 'Ave_3F', 'track_cd','time_diff', 'weight_change','month','race_name',\
-                  'RPCI','PCI3','leg_typ','PCI','last_3F_diff','weight_carry', 'horse_weight','age_month']]
+                 'corner_cnt', 'Ave_3F', 'track_cd','time_diff', 'weight_change','month','race_name',\
+                 'rank_corner1','rank_corner2','rank_corner3','rank_corner1','RPCI','PCI3',\
+                 'leg_typ','PCI','last_3F_diff','weight_carry', 'horse_weight','age_month']]
     for col in df.columns.tolist():
         df = df.rename(columns={col : 'p' + '_' + col + '_' + var_hist})
     return df
 
-#### create x number of historical race features 
+
+#### create x number of historical race features using each historical race as a baseline
 def merge_histry_data(df_name,cat):
+    print("CREATING HISTORY RECORDS ON ",datetime.now())
+    st_time = datetime.now()
     df_all = pd.DataFrame([])
     # clean and prep date variable. The variable is used to rank the date for each horse 
-    # rank is used to find most x number of recent races for each horse
-    df_name['date'] = (df_name['year'] + df_name['month'].astype(str) + df_name['day']).astype(int) 
+    # rank is used to find x number of race as a baseline and most recent x number of race for historical features
+    df_name['date'] = (df_name['year_yyyy'] + df_name['month_mm'] + df_name['day_dd']).astype(int) 
     df_name["order"]=df_name.groupby(["horse_name"])["date"].rank(ascending=False)
     df_name['date'] = pd.to_datetime((df_name['date']), format='%Y%m%d').dt.date
-    df_name['month'] = df_name['month'].astype('int64')
-    # find horse with highest number of races. deduct it by 2 as it looks at last 3 races
+    # find a horse with highest number of races. deduct it by 2 as a minimum condition for horses with at least 3 historical races
     l_count = df_name.horse_name.value_counts().max()-2
     for t in range(1,l_count):
+        # define horse with the latest to the last race history as a baseline
         print(str(t) + " out of " + str(l_count))
         df_to_add = df_name[df_name['order'] == t]
+        
+        # join up to 10 most recent races from the baseline
         for i in [str(i) for i in range(0, 10)]:
+            # i + 1 races before the baseline 
             df_hist = df_name[df_name['order'] == int(i) + 1 + t]
             df_to_add = pd.merge(df_to_add, rename_histry_data(i,df_hist), how='left', \
                       left_on='horse_name', right_on='p_horse_name_' + i)
 
-            #calculate l_days
+            #calculate days from the baseline
             if i == '0':
-                df_to_add['l_days_0'] = (pd.to_datetime(df_to_add['date']) - pd.to_datetime(df_to_add['p_date_0'])).dt.days
+                df_to_add['p_days_0'] = (pd.to_datetime(df_to_add['date']) - pd.to_datetime(df_to_add['p_date_0'])).dt.days
             else:
-                df_to_add['l_days_' + str(int(i))] = (pd.to_datetime(df_to_add['p_date_' + str(int(i) - 1)]) - pd.to_datetime(df_to_add['p_date_' + str(int(i))])).dt.days
+                df_to_add['p_days_' + str(int(i))] = (pd.to_datetime(df_to_add['p_date_' + str(int(i) - 1)]) - pd.to_datetime(df_to_add['p_date_' + str(int(i))])).dt.days
 
             ### comment out 
 #            df_to_add = df_to_add[df_to_add['p_horse_name_' + i].notnull()].drop(columns='p_horse_name_' + i)
             df_to_add = df_to_add.drop(columns='p_horse_name_' + i)
-            for var in cat:
-                df_to_add['p_' + var + '_' + i] = df_to_add['p_' + var + '_' + i].astype('Int64')
-        
+            #for var in cat:
+             #   df_to_add['p_' + var + '_' + i] = df_to_add['p_' + var + '_' + i].astype('Int64')
+
+        # copying df for an initial iteration
         if df_all is None:
             df_all = df_to_add.copy()
+        # concatinating df for the rest of iterations 
         else:
-            df_all = pd.concat([df_all, df_to_add])
+            df_all = pd.concat([df_all, df_to_add],axis=0,ignore_index=True)
+    
+    print("HISTORY CREATED IN {0} SECONDS".format((datetime.now()-st_time).total_seconds()))
     return df_all
 
+df_hist = merge_histry_data(df,cat)
 
-#### count number of times horse and jockey won in each rank 
-# rolling sum function 
+
+#### rolling sum function. used in horse jocky rank count function
 def rolling_sum(df, r, last_d, count_col, primary_key, new_col_name):
     rolling = pd.DataFrame(df.groupby(primary_key).rolling(last_d,on='date')[count_col].sum().reset_index())
     new_col = new_col_name + str(r) + '_' + 'last' + last_d
@@ -176,6 +191,7 @@ def rolling_sum(df, r, last_d, count_col, primary_key, new_col_name):
     rolling = rolling[[primary_key,'date',new_col]]
     return(rolling)
 
+#### WORK FROM HERE
 # min days, max days, and interval decide number of variables for period e.g. 90 to 365 for every 90 days
 # lowest rank decides the range of ranks included for counting e.g. 3 for 1 to 3
 def horse_jocky_rank_count(df,min_days=90,max_days=365,days_interval=90,min_rank=3):
