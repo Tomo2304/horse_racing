@@ -5,25 +5,34 @@ from sklearn.preprocessing import LabelEncoder
 from os import path
 
 ############  Create functions ############
-
 #### reading data, cleaning, formatting, and remove columns and records 
 def data_to_read(history_df,mapping_df):
+    print("DATA LOAD START",datetime.now())
+    st_time = datetime.now()
+    
+    # import column name in English
     tbl_mapping = pd.read_excel(mapping_df,sheet_name='hist_tbl')
     var_name = tbl_mapping['col_name'].tolist()
     
+    # read data
     df_data = pd.read_csv('race_history.csv', header=0, names=var_name,index_col=False)
+    # create date variables 
     df_data['year_yyyy'] = '20' + df_data['year'].astype(str)   
     df_data['month_mm'] = df_data['month'].apply(lambda x : '0' + str(x) if int(x) < 10 else str(x))
     df_data['day_dd'] = df_data['day'].apply(lambda x : '0' + str(x) if int(x) < 10 else str(x))
     df_data['horse_name_original'] = df_data['horse_name']
-    ## same horse name can exist in data. Create unique horse name
+    ##same horse name can exist in data. Create unique horse name
     df_data['horse_name'] = df_data['horse_name'] + df_data['producer_name'] + df_data['horse_father'] + df_data['horse_mother']
+    print("LOADING FINISHED IN {0} SECONDS".format((datetime.now()-st_time).total_seconds()))
     return df_data
 
 df = data_to_read('race_history.csv','mapping_tbl.xlsx')
 
+
 #### remove unnecessary data and variables
 def data_to_delete(df):
+    print("FILTERING OUT DATA AND VARIABLES ON ",datetime.now())
+    st_time = datetime.now()
     ## races that were cancelled, only for new horses, some horses with handicapped, and obstacle races are excluded 
     ## They are have a lot less number of race histories.
     df = df[~df['track_cd'].isin([51,52,53,54,55,56,57,58,59])]
@@ -35,12 +44,15 @@ def data_to_delete(df):
     df['time_diff'] = df['time_diff'].astype(float)
     df['total_horses'] = df['total_horses'].astype(float)
     df = df.drop(columns=drop_vars)
+    print("FILTERING FINISHED IN {0} SECONDS".format((datetime.now()-st_time).total_seconds()))
     return df
 
 df = data_to_delete(df)
 
 #### create track type feature
 def track_type(df):
+    print("ADDING TRACK TYPE FEATURE ON",datetime.now())
+    st_time = datetime.now()
     def tr_type(df):
         if df['track_cd'] >= 10 and df['track_cd'] <= 22:
             return('grass')
@@ -51,12 +63,15 @@ def track_type(df):
         else:
             return('Unknown')
     df['track_type'] = df.apply(tr_type,axis=1)
+    print("TRACK TYPE FEATURE ADDED IN {0} SECONDS".format((datetime.now()-st_time).total_seconds()))
     return(df)
 
 df = track_type(df)
 
 #### label encoding categorical string variables
 def label_encode(df):
+    print("LABEL ENCODING ON on",datetime.now())
+    st_time = datetime.now()
     # get all object column name in list
     cat = list(df.select_dtypes(include='object').columns)
     # remove object but non categorical variable
@@ -69,7 +84,7 @@ def label_encode(df):
     le = LabelEncoder()
     df[cat] = df[cat].apply(le.fit_transform)
 
-    print("label encoded:",cat)
+    print("ENCODED IN {0} SECONDS".format((datetime.now()-st_time).total_seconds()))
     return df, cat
 
 df_l, cat = label_encode(df)
@@ -77,15 +92,17 @@ df_l, cat = label_encode(df)
 #### Peak age of horse for racing is around 4 years old. 
 #### create age in months as this feature may have more impact on the prediction
 def age_month(df):
+    print("ADDING AGE IN MONTH FEATURE ON",datetime.now())
+    st_time = datetime.now()
     df['DOB'] = df['DOB'].astype(str)
     df['age_month'] = (df['year_yyyy'].astype('float64') - df['DOB'].str[:4].astype('float64')) * 12 + (df['month'].astype('float64') - df['DOB'].str[4:6].astype('float64'))
     df.drop(columns=['DOB'])
+    print("AGE ADDED IN {0} SECONDS".format((datetime.now()-st_time).total_seconds()))
     return(df)
 
 df = age_month(df_l)
 
 
-#### WORK FROM HERE
 # enter label encoding category list and add other cat variables
 def int_cat_list(cat):
     other_cat = ['place','class_cd','race_name','field', 'weather',
@@ -98,9 +115,9 @@ def int_cat_list(cat):
     int_cat_list = [ele for ele in int_cat_list if ele not in drop_cat]
     return(int_cat_list)
 
-#### list of columns to keep for previous race variables
+#### list of columns used to create previous race variables
+#### this function is used in merge history data function
 def rename_histry_data(var_hist,df_name):
-    #NK horse_name deleted, jockey added, race_name added
     df = df_name[['horse_name','place','sum_num','horse_num','rank','field','track_type',\
                  'dist','field_cond', 'weather','time','last_3F','date','class_cd','jockey',\
                   'corner_cnt', 'Ave_3F', 'track_cd','time_diff', 'weight_change','month','race_name',\
